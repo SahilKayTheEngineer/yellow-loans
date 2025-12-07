@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -170,13 +170,96 @@ const ErrorMessage = styled.div`
   border-radius: ${(props) => props.theme.borderRadius.md};
 `;
 
+const NotificationContainer = styled.div`
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  z-index: 1000;
+  max-width: 400px;
+  animation: slideIn 0.3s ease-out;
+  
+  @keyframes slideIn {
+    from {
+      transform: translateX(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+`;
+
+const Notification = styled.div<{ $type: 'error' | 'success' }>`
+  padding: 1rem 1.5rem;
+  border-radius: ${(props) => props.theme.borderRadius.md};
+  box-shadow: ${(props) => props.theme.shadows.lg};
+  margin-bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: ${(props) =>
+    props.$type === 'error'
+      ? props.theme.colors.red[100]
+      : props.theme.colors.green[500]};
+  border: 1px solid
+    ${(props) =>
+      props.$type === 'error'
+        ? props.theme.colors.red[400]
+        : props.theme.colors.green[600]};
+  color: ${(props) =>
+    props.$type === 'error'
+      ? props.theme.colors.red[700]
+      : props.theme.colors.white};
+`;
+
+const NotificationMessage = styled.div`
+  flex: 1;
+  font-weight: ${(props) => props.theme.fontWeight.medium};
+`;
+
+const CloseButton = styled.button`
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.25rem;
+  margin-left: 1rem;
+  padding: 0;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+
+  &:hover {
+    opacity: 1;
+  }
+`;
+
 export default function ApplicationPage() {
   const [step, setStep] = useState<Step>('biographical');
   const [riskGroupId, setRiskGroupId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [notification, setNotification] = useState<{ type: 'error' | 'success'; message: string } | null>(null);
   const [createUser] = useMutation(CREATE_USER);
   const [updateUser] = useMutation(UPDATE_USER);
   const [createUserLoan, { loading, error }] = useMutation(CREATE_USER_LOAN);
+
+  // Auto-dismiss notifications after 5 seconds
+  const showNotification = (type: 'error' | 'success', message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => {
+      setNotification(null);
+    }, 5000);
+  };
+
+  // Display Apollo GraphQL errors
+  useEffect(() => {
+    if (error) {
+      setNotification({ type: 'error', message: `GraphQL Error: ${error.message}` });
+      setTimeout(() => {
+        setNotification(null);
+      }, 5000);
+    }
+  }, [error]);
 
   const methods = useForm<LoanFormData>({
     resolver: zodResolver(loanFormSchema),
@@ -190,7 +273,7 @@ export default function ApplicationPage() {
 
   const handleFinalSubmit = async () => {
     if (!userId || !riskGroupId) {
-      alert('User information not saved. Please go back and complete the form.');
+      showNotification('error', 'User information not saved. Please go back and complete the form.');
       return;
     }
 
@@ -220,17 +303,17 @@ export default function ApplicationPage() {
       });
 
       if (result.data?.createUserLoan?.success) {
-        alert('Loan application submitted successfully!');
+        showNotification('success', 'Loan application submitted successfully!');
         methods.reset();
         setStep('biographical');
         setUserId(null);
         setRiskGroupId(null);
       } else {
         const errors = result.data?.createUserLoan?.errors || [];
-        alert(`Loan application failed: ${errors.join(', ')}`);
+        showNotification('error', `Loan application failed: ${errors.join(', ')}`);
       }
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      showNotification('error', `Error: ${err.message}`);
     }
   };
 
@@ -263,10 +346,10 @@ export default function ApplicationPage() {
             setStep('income');
           } else {
             const errors = result.data?.createUser?.errors || [];
-            alert(`Failed to save user information: ${errors.join(', ')}`);
+            showNotification('error', `Failed to save user information: ${errors.join(', ')}`);
           }
         } catch (err: any) {
-          alert(`Error saving user information: ${err.message}`);
+          showNotification('error', `Error saving user information: ${err.message}`);
         }
       }
     } else if (currentStep === 'income') {
@@ -285,7 +368,7 @@ export default function ApplicationPage() {
           });
           setStep('phone');
         } catch (err: any) {
-          alert(`Error updating income: ${err.message}`);
+          showNotification('error', `Error updating income: ${err.message}`);
         }
       } else if (isValid) {
         setStep('phone');
@@ -300,17 +383,26 @@ export default function ApplicationPage() {
   };
 
   const prevStep = () => {
+    // Only allow going back from income to biographical
+    // Once user reaches phone selection, they cannot go back
     if (step === 'income') setStep('biographical');
-    else if (step === 'phone') setStep('income');
-    else if (step === 'summary') setStep('phone');
   };
 
   const steps: Step[] = ['biographical', 'income', 'phone', 'summary'];
   const stepIndex = steps.indexOf(step);
 
   return (
-    <Container>
-      <Card>
+    <>
+      {notification && (
+        <NotificationContainer>
+          <Notification $type={notification.type}>
+            <NotificationMessage>{notification.message}</NotificationMessage>
+            <CloseButton onClick={() => setNotification(null)}>×</CloseButton>
+          </Notification>
+        </NotificationContainer>
+      )}
+      <Container>
+        <Card>
         <Title>Apply for a Phone Loan</Title>
         <Subtitle>Complete the form below to apply for financing</Subtitle>
 
@@ -349,7 +441,7 @@ export default function ApplicationPage() {
             )}
 
             <ButtonContainer>
-              {step !== 'biographical' && (
+              {step === 'income' && (
                 <Button type="button" onClick={prevStep} $variant="secondary">
                   Previous
                 </Button>
@@ -381,5 +473,6 @@ export default function ApplicationPage() {
         )}
       </Card>
     </Container>
+    </>
   );
 }
