@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: yellow-loans-db
+    environment:
+      POSTGRES_USER: yellow_user
+      POSTGRES_PASSWORD: yellow_password
+      POSTGRES_DB: yellow_loans
+    ports:
+      - "5433:5432"  # External port 5433, internal port 5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yellow_user -d yellow_loans"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: yellow-loans-backend
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: postgresql://yellow_user:yellow_password@postgres:5432/yellow_loans
+      PORT: 4000
+      NODE_ENV: development
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "sleep 3 && npm run dev"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: yellow-loans-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_GRAPHQL_URL: http://localhost:4000/graphql
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+
